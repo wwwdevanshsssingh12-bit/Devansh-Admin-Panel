@@ -1,4 +1,6 @@
--- [[ SECTION: INITIALIZATION & SERVICES ]]
+-- [[ 👑 DEVANSH ADMIN PANEL v8.1 ULTIMATE ]] --
+-- [[ Pure RichText UI, Top-Left Floating Stats, Fixed Console, 200+ Cmds ]] --
+
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
@@ -6,492 +8,365 @@ local RunService = game:GetService("RunService")
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
+local TeleportService = game:GetService("TeleportService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-
 local UI_PARENT = (RunService:IsStudio() and LocalPlayer.PlayerGui) or (pcall(function() return CoreGui.Name end) and CoreGui) or LocalPlayer.PlayerGui
 
--- [[ SECTION: UTILITIES & VARIABLES ]]
-local DEV_PANEL_VERSION = "v1.0"
-local PANEL_TITLE = "⚙ Devansh Admin Panel"
-local PILL_TITLE = "⚙ Devansh"
-
+-- [[ 🎨 PREMIUM PALETTE ]] --
 local COLORS = {
-	Bg = Color3.fromRGB(12, 12, 20),
-	Border = Color3.fromRGB(0, 200, 255),
-	Text = Color3.fromRGB(210, 210, 240),
-	Active = Color3.fromRGB(80, 255, 150),
-	Inactive = Color3.fromRGB(80, 80, 100),
-	Placeholder = Color3.fromRGB(100, 100, 120)
+	Bg      = Color3.fromRGB(12, 12, 18),
+	Border  = Color3.fromRGB(0, 200, 255),
+	Text    = Color3.fromRGB(220, 220, 255),
+	Dim     = Color3.fromRGB(100, 100, 130),
+	CardBg  = Color3.fromRGB(18, 18, 26),
+	Active  = Color3.fromRGB(80, 255, 150),
+	Danger  = Color3.fromRGB(255, 80, 80),
+	TabSel  = Color3.fromRGB(0, 50, 80),
 }
 
-local panelPosition = isMobile and UDim2.new(1, -310, 1, -430) or UDim2.new(0, 10, 0, 10)
-local pillPosition = isMobile and UDim2.new(1, -130, 1, -50) or UDim2.new(0, 10, 0, 10)
+-- [[ 🔧 STATE & UTILITIES ]] --
+local State = { FlySpeed = 50, SavedPos = {}, ShowFPS = false, ShowPing = false, ShowPos = false }
 
-local State = {}
-local Connections = {}
-local Toggles = {}
+local function tween(obj, tInfo, props) TweenService:Create(obj, tInfo, props):Play() end
+local T_FAST = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local T_FLASH = TweenInfo.new(0.05, Enum.EasingStyle.Linear)
+local T_FADE = TweenInfo.new(0.15, Enum.EasingStyle.Linear)
+local T_SPRING = TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
--- Utility to create UI instances compactly
-local function create(className, properties, children)
+local function create(className, props)
 	local inst = Instance.new(className)
-	for k, v in pairs(properties or {}) do
-		inst[k] = v
-	end
-	for _, child in ipairs(children or {}) do
-		child.Parent = inst
-	end
+	for k, v in pairs(props or {}) do inst[k] = v end
 	return inst
 end
+local function addCorner(rad, p) return create("UICorner", {CornerRadius = UDim.new(0, rad), Parent = p}) end
+local function addStroke(col, thk, p) return create("UIStroke", {Color = col, Thickness = thk or 1.2, Parent = p}) end
 
-local function addCorner(radius, parent)
-	return create("UICorner", {CornerRadius = UDim.new(0, radius)}, {parent and {Parent = parent} or nil}[1] or nil)
+local function getChar(plr) plr = plr or LocalPlayer return plr.Character or plr.CharacterAdded:Wait() end
+local function getHRP(plr) local c = getChar(plr) return c and c:FindFirstChild("HumanoidRootPart") end
+local function getHum(plr) local c = getChar(plr) return c and c:FindFirstChildOfClass("Humanoid") end
+
+local function getTargets(str)
+	local t = {} if not str or str == "" or str == "me" then return {LocalPlayer} end
+	if str == "all" then return Players:GetPlayers() end
+	if str == "others" then for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then table.insert(t, p) end end return t end
+	if str == "random" then local plrs = Players:GetPlayers() return {plrs[math.random(1, #plrs)]} end
+	for _, p in ipairs(Players:GetPlayers()) do if p.Name:lower():sub(1,#str)==str:lower() or p.DisplayName:lower():sub(1,#str)==str:lower() then table.insert(t,p) end end return t
 end
 
-local function addStroke(color, parent)
-	return create("UIStroke", {Color = color, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border})
-end
-
--- [[ SECTION: NOTIFICATION SYSTEM ]]
-local NotifGui = create("ScreenGui", {Name = "DevanshNotifs", Parent = UI_PARENT, DisplayOrder = 1000})
-local NotifFrame = create("Frame", {
-	BackgroundTransparency = 1, Size = UDim2.new(0, 200, 1, 0),
-	Position = isMobile and UDim2.new(0.5, -100, 0, 10) or UDim2.new(1, -210, 0, 10), Parent = NotifGui
-})
-local NotifLayout = create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 5), VerticalAlignment = Enum.VerticalAlignment.Top}, {Parent = NotifFrame})
-
-local function Notify(text, icon)
-	local notif = create("Frame", {
-		Size = UDim2.new(1, 0, 0, 40), BackgroundColor3 = COLORS.Bg, BackgroundTransparency = 0.15,
-		Position = UDim2.new(1, 50, 0, 0), Parent = NotifFrame, ClipsDescendants = true
-	})
-	addCorner(4).Parent = notif
-	create("Frame", {Size = UDim2.new(0, 3, 1, 0), BackgroundColor3 = COLORS.Border, BorderSizePixel = 0, Parent = notif})
-	create("TextLabel", {
-		Size = UDim2.new(1, -30, 1, 0), Position = UDim2.new(0, 30, 0, 0),
-		BackgroundTransparency = 1, Text = text, TextColor3 = COLORS.Text, TextSize = 11,
-		Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, Parent = notif
-	})
-	create("TextLabel", {
-		Size = UDim2.new(0, 30, 1, 0), BackgroundTransparency = 1, Text = icon or "✅",
-		TextColor3 = COLORS.Text, TextSize = 14, Font = Enum.Font.Gotham, Parent = notif
-	})
-	
-	TweenService:Create(notif, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = UDim2.new(0, 0, 0, 0)}):Play()
-	task.delay(2.5, function()
-		local out = TweenService:Create(notif, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = UDim2.new(1, 50, 0, 0), BackgroundTransparency = 1})
-		out:Play()
-		out.Completed:Connect(function() notif:Destroy() end)
-	end)
-end
-
--- [[ SECTION: COMMAND DEFINITIONS & STATE ]]
+-- [[ 📦 COMMAND ENGINE ]] --
 local Commands = {}
+local function C(cat, aliases, desc, func, isToggle) table.insert(Commands, {c=cat, a=aliases, d=desc, f=func, tgl=isToggle, on=false}) end
 
-local function addCmd(cat, emoji, name, desc, isToggle, func)
-	table.insert(Commands, {category = cat, emoji = emoji, name = name, desc = desc, isToggle = isToggle, active = false, func = func})
+-- 1. DEV
+C("DEV", {"dex", "explorer"}, "Load Dex Explorer", function() loadstring(game:HttpGet("https://raw.githubusercontent.com/infyiff/backup/main/dex.lua"))() end)
+C("DEV", {"remotespy"}, "Load Remote Spy", function() loadstring(game:HttpGet("https://raw.githubusercontent.com/infyiff/backup/main/SimpleSpyV3/main.lua"))() end)
+C("DEV", {"console"}, "Roblox Console", function() 
+	local success = pcall(function() game:GetService("StarterGui"):SetCore("DeveloperConsoleVisible", true) end)
+	if not success then error("Executor blocked SetCore. Press F9.") end
+end)
+C("DEV", {"fecheck"}, "Check FE status", function() print("FE is: "..tostring(Workspace.FilteringEnabled)) end)
+C("DEV", {"serverinfo"}, "Print JobID & Region", function() print("JobID: "..game.JobId) end)
+C("DEV", {"serverhop"}, "Hop to new server", function() TeleportService:Teleport(game.PlaceId, LocalPlayer) end)
+C("DEV", {"copyjobid"}, "Copy JobID", function() setclipboard(game.JobId) end)
+
+-- 2. MOVEMENT
+C("MOV", {"fly"}, "Enable flight", function(a, s) local h=getHRP() if not h then return end if s then State.FlyBV=create("BodyVelocity",{MaxForce=Vector3.new(9e9,9e9,9e9),Velocity=Vector3.new(0,0,0),Parent=h}) State.FlyBG=create("BodyGyro",{MaxTorque=Vector3.new(9e9,9e9,9e9),P=9000,CFrame=Camera.CFrame,Parent=h}) State.FlyLoop=RunService.RenderStepped:Connect(function() local camCF=Camera.CFrame local moveVec=require(LocalPlayer.PlayerScripts.PlayerModule):GetControls():GetMoveVector() State.FlyBV.Velocity=(camCF.RightVector*moveVec.X+camCF.LookVector*-moveVec.Z)*State.FlySpeed State.FlyBG.CFrame=camCF end) getHum().PlatformStand=true else if State.FlyLoop then State.FlyLoop:Disconnect() end if State.FlyBV then State.FlyBV:Destroy() end if State.FlyBG then State.FlyBG:Destroy() end if getHum() then getHum().PlatformStand=false end end end, true)
+C("MOV", {"speed", "ws"}, "WalkSpeed [n]", function(a) local h=getHum() if h then h.WalkSpeed=tonumber(a[1]) or 16 end end)
+C("MOV", {"jump", "jp"}, "JumpPower [n]", function(a) local h=getHum() if h then h.UseJumpPower=true h.JumpPower=tonumber(a[1]) or 50 end end)
+C("MOV", {"hipheight", "hh"}, "HipHeight [n]", function(a) local h=getHum() if h then h.HipHeight=tonumber(a[1]) or 0 end end)
+C("MOV", {"default"}, "Reset speeds", function() local h=getHum() if h then h.WalkSpeed=16 h.JumpPower=50 h.HipHeight=0 end end)
+C("MOV", {"noclip"}, "Walk through walls", function(a, s) if s then State.Noclip=RunService.Stepped:Connect(function() for _,p in pairs(getChar():GetDescendants()) do if p:IsA("BasePart") then p.CanCollide=false end end end) else if State.Noclip then State.Noclip:Disconnect() end end end, true)
+C("MOV", {"tp"}, "TP to X Y Z", function(a) local h=getHRP() if h and a[3] then h.CFrame=CFrame.new(tonumber(a[1]),tonumber(a[2]),tonumber(a[3])) end end)
+C("MOV", {"goto", "to"}, "TP to player", function(a) for _,t in ipairs(getTargets(a[1])) do if getHRP() and getHRP(t) then getHRP().CFrame=getHRP(t).CFrame break end end end)
+C("MOV", {"bring"}, "Bring player", function(a) for _,t in ipairs(getTargets(a[1])) do if getHRP() and getHRP(t) then getHRP(t).CFrame=getHRP().CFrame end end end)
+C("MOV", {"follow"}, "Follow player", function(a, s) local t=getTargets(a[1])[1] if s and t then State.Fol=RunService.RenderStepped:Connect(function() if getHRP() and getHRP(t) then getHRP().CFrame=getHRP(t).CFrame*CFrame.new(0,0,3) end end) else if State.Fol then State.Fol:Disconnect() end end end, true)
+C("MOV", {"void"}, "TP to void", function(a) for _,t in ipairs(getTargets(a[1])) do if getHRP(t) then getHRP(t).CFrame=CFrame.new(0,-5000,0) end end end)
+C("MOV", {"freeze", "anchor"}, "Anchor char", function(a, s) local h=getHRP() if h then h.Anchored=s end end, true)
+C("MOV", {"hover"}, "Float in place", function(a, s) local h=getHRP() if h then if s then State.Hov=create("BodyPosition",{Position=h.Position,MaxForce=Vector3.new(9e9,9e9,9e9),Parent=h}) else if State.Hov then State.Hov:Destroy() end end end end, true)
+C("MOV", {"blink"}, "TP forward [n]", function(a) local h=getHRP() if h then h.CFrame=h.CFrame*CFrame.new(0,0,-(tonumber(a[1]) or 10)) end end)
+C("MOV", {"rocket"}, "Launch up", function() local h=getHRP() if h then h.Velocity=Vector3.new(0,1000,0) end end)
+C("MOV", {"antivoid"}, "Auto-TP from void", function(a,s) if s then State.AV=RunService.Stepped:Connect(function() local h=getHRP() if h and h.Position.Y< -100 then h.CFrame=CFrame.new(0,50,0) h.Velocity=Vector3.new() end end) else if State.AV then State.AV:Disconnect() end end end, true)
+C("MOV", {"platform"}, "Spawn platform", function() local h=getHRP() if h then create("Part",{Size=Vector3.new(15,1,15),Position=h.Position-Vector3.new(0,3,0),Anchored=true,Transparency=0.5,Parent=Workspace}) end end)
+
+-- 3. VISUAL
+C("VIS", {"esp"}, "Highlight Players", function(a, s) if s then State.ESP=RunService.RenderStepped:Connect(function() for _,p in pairs(Players:GetPlayers()) do if p~=LocalPlayer and p.Character and not p.Character:FindFirstChild("DevESP") then create("Highlight",{Name="DevESP",FillColor=p.TeamColor and p.TeamColor.Color or COLORS.Border,OutlineColor=Color3.new(1,1,1),FillTransparency=0.6,Parent=p.Character}) end end end) else if State.ESP then State.ESP:Disconnect() end for _,p in pairs(Players:GetPlayers()) do if p.Character and p.Character:FindFirstChild("DevESP") then p.Character.DevESP:Destroy() end end end end, true)
+C("VIS", {"fullbright", "fb"}, "Max lighting", function(a, s) if s then State.FBL=RunService.RenderStepped:Connect(function() Lighting.Ambient=Color3.new(1,1,1) Lighting.Brightness=2 Lighting.FogEnd=9e9 end) else if State.FBL then State.FBL:Disconnect() end end end, true)
+C("VIS", {"fov"}, "FieldOfView [n]", function(a) Camera.FieldOfView=tonumber(a[1]) or 70 end)
+C("VIS", {"freecam", "fc"}, "Scriptable camera", function(a, s) Camera.CameraType = s and Enum.CameraType.Scriptable or Enum.CameraType.Custom end, true)
+C("VIS", {"zoom"}, "Set Cam Zoom [n]", function(a) LocalPlayer.CameraMaxZoomDistance=tonumber(a[1]) or 128 LocalPlayer.CameraMinZoomDistance=tonumber(a[1]) or 0.5 end)
+C("VIS", {"camlock"}, "Lock cam to player", function(a, s) local t=getTargets(a[1])[1] if s and t then State.CL=RunService.RenderStepped:Connect(function() if getHRP(t) then Camera.CFrame=CFrame.new(Camera.CFrame.Position, getHRP(t).Position) end end) else if State.CL then State.CL:Disconnect() end end end, true)
+C("VIS", {"nightvision"}, "Green Tint", function(a,s) if s then create("ColorCorrectionEffect",{Name="DevNV",TintColor=Color3.new(0,1,0),Parent=Lighting}) else if Lighting:FindFirstChild("DevNV") then Lighting.DevNV:Destroy() end end end, true)
+C("VIS", {"xray"}, "See thru walls", function(a, s) for _,v in pairs(Workspace:GetDescendants()) do if v:IsA("BasePart") and v.Parent~=getChar() then v.Transparency=s and 0.5 or 0 end end end, true)
+C("VIS", {"nametags"}, "Player Nametags", function(a, s) if s then for _,p in pairs(Players:GetPlayers()) do if p.Character and p.Character:FindFirstChild("Head") then local bg=create("BillboardGui",{Name="DevNT",Size=UDim2.new(0,100,0,40),StudsOffset=Vector3.new(0,2,0),Parent=p.Character.Head,AlwaysOnTop=true}) create("TextLabel",{Size=UDim2.new(1,0,1,0),BackgroundTransparency=1,Text=p.Name,TextColor3=COLORS.Border,TextScaled=true,Parent=bg}) end end else for _,p in pairs(Players:GetPlayers()) do if p.Character and p.Character:FindFirstChild("Head") and p.Character.Head:FindFirstChild("DevNT") then p.Character.Head.DevNT:Destroy() end end end end, true)
+C("VIS", {"hideui"}, "Hide CoreGui", function(a,s) game:GetService("StarterGui"):SetCore("TopbarEnabled", not s) end, true)
+
+-- 4. COMBAT
+C("CMB", {"god", "godmode"}, "Invincibility (FE)", function(a, s) if s then State.God=RunService.RenderStepped:Connect(function() local h=getHum() if h then h.Health=h.MaxHealth end end) else if State.God then State.God:Disconnect() end end end, true)
+C("CMB", {"hitbox", "hb"}, "Expand hitboxes", function(a, s) if s then local sz=tonumber(a[1]) or 5 State.HB=RunService.RenderStepped:Connect(function() for _,p in pairs(Players:GetPlayers()) do if p~=LocalPlayer and getHRP(p) then getHRP(p).Size=Vector3.new(sz,sz,sz) getHRP(p).Transparency=0.7 end end end) else if State.HB then State.HB:Disconnect() end for _,p in pairs(Players:GetPlayers()) do if p~=LocalPlayer and getHRP(p) then getHRP(p).Size=Vector3.new(2,2,1) getHRP(p).Transparency=1 end end end end, true)
+C("CMB", {"reach"}, "Tool Reach [n]", function(a) local c=getChar() local t=c and c:FindFirstChildOfClass("Tool") if t and t:FindFirstChild("Handle") then t.Handle.Size=Vector3.new(tonumber(a[1]) or 5,tonumber(a[1]) or 5,tonumber(a[1]) or 5) t.Handle.Transparency=0.5 end end)
+C("CMB", {"selfheal"}, "Heal to Max", function() local h=getHum() if h then h.Health=h.MaxHealth end end)
+C("CMB", {"killaura"}, "Damage nearby", function(a,s) if s then State.KA=RunService.RenderStepped:Connect(function() for _,p in pairs(Players:GetPlayers()) do if p~=LocalPlayer and getHRP(p) and getHRP() and (getHRP().Position-getHRP(p).Position).Magnitude < (tonumber(a[1]) or 15) then if getHum(p) then getHum(p).Health=0 end end end end) else if State.KA then State.KA:Disconnect() end end end, true)
+C("CMB", {"aimbot"}, "Face nearest player", function(a,s) if s then State.AB=RunService.RenderStepped:Connect(function() local c,d=nil,math.huge for _,p in pairs(Players:GetPlayers()) do if p~=LocalPlayer and getHRP(p) then local mag=(getHRP(p).Position-Camera.CFrame.Position).Magnitude if mag<d then c=getHRP(p);d=mag end end end if c then Camera.CFrame=CFrame.new(Camera.CFrame.Position,c.Position) end end) else if State.AB then State.AB:Disconnect() end end end, true)
+C("CMB", {"spinbot"}, "Rapid spin", function(a,s) local h=getHRP() if h then if s then State.SB=create("BodyAngularVelocity",{AngularVelocity=Vector3.new(0,150,0),MaxTorque=Vector3.new(9e9,9e9,9e9),Parent=h}) else if State.SB then State.SB:Destroy() end end end end, true)
+
+-- 5. WORLD
+C("WLD", {"time"}, "Set ClockTime", function(a) Lighting.ClockTime=tonumber(a[1]) or 14 end)
+C("WLD", {"fog"}, "Set FogEnd", function(a) Lighting.FogEnd=tonumber(a[1]) or 1000 end)
+C("WLD", {"dayloop"}, "Cycle Day/Night", function(a,s) if s then State.DL=RunService.RenderStepped:Connect(function() Lighting.ClockTime=Lighting.ClockTime+0.05 end) else if State.DL then State.DL:Disconnect() end end end, true)
+C("WLD", {"gravity_flip"}, "Flip Gravity", function() Workspace.Gravity=-196.2 end)
+C("WLD", {"gravity_reset"}, "Reset Gravity", function() Workspace.Gravity=196.2 end)
+C("WLD", {"clearweather"}, "Clear Weather", function() Lighting.ClockTime=12 Lighting.FogEnd=9e9 end)
+C("WLD", {"nuke"}, "Explode Map", function(a) create("Explosion",{Position=Vector3.new(0,0,0),BlastRadius=5000,Parent=Workspace}) end)
+
+-- 6. PLAYER
+C("PLR", {"invisible", "invis"}, "Make char transparent", function() for _,p in pairs(getChar():GetDescendants()) do if p:IsA("BasePart") or p:IsA("Decal") then p.Transparency=1 end end end)
+C("PLR", {"visible", "vis"}, "Restore char visibility", function() for _,p in pairs(getChar():GetDescendants()) do if p:IsA("BasePart") and p.Name~="HumanoidRootPart" or p:IsA("Decal") then p.Transparency=0 end end end)
+C("PLR", {"nolimbs"}, "Remove arms/legs", function() for _,p in pairs(getChar():GetChildren()) do if p:IsA("BasePart") and p.Name~="Head" and p.Name~="Torso" and p.Name~="HumanoidRootPart" then p:Destroy() end end end)
+C("PLR", {"delhats", "drophats"}, "Delete accessories", function() local h=getHum() if h then h:RemoveAccessories() end end)
+C("PLR", {"respawn", "grespawn"}, "FE Respawn", function() getChar():BreakJoints() end)
+C("PLR", {"shiny"}, "Metallic body", function() for _,p in pairs(getChar():GetDescendants()) do if p:IsA("BasePart") then p.Material=Enum.Material.Neon end end end)
+
+-- 7. UTILITY & HUBS (Toggles Top-Left Stats)
+C("UTL", {"ping"}, "Toggle Ping Text HUD", function(a,s) State.ShowPing=s end, true)
+C("UTL", {"fps"}, "Toggle FPS Text HUD", function(a,s) State.ShowFPS=s end, true)
+C("UTL", {"pos"}, "Toggle Pos Text HUD", function(a,s) State.ShowPos=s end, true)
+
+C("UTL", {"rejoin"}, "Rejoin Server", function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end)
+C("UTL", {"btools"}, "Building Tools", function() for i=1,4 do create("HopperBin",{BinType=i,Parent=LocalPlayer.Backpack}) end end)
+C("UTL", {"realmhub"}, "Load Realm Hub", function() loadstring(game:HttpGet("https://raw.githubusercontent.com/wwwdevanshsssingh12-bit/99-Nights/refs/heads/main/Realm%20Loader.lua"))() end)
+C("UTL", {"inkhub"}, "Load Ink Hub", function() loadstring(game:HttpGet("https://raw.githubusercontent.com/wwwdevanshsssingh12-bit/Devansh-Hub----Ink-Game/refs/heads/main/Loader.lua"))() end)
+C("UTL", {"alkalinehub"}, "Load AlKaline Hub", function() loadstring(game:HttpGet("https://raw.githubusercontent.com/wwwdevanshsssingh12-bit/AlKaline-Hub/refs/heads/main/Loader.lua"))() end)
+C("UTL", {"bloxfruithub"}, "Load Bloxfruit Hub", function() loadstring(game:HttpGet("https://raw.githubusercontent.com/wwwdevanshsssingh12-bit/Devansh-Hub/main/Loader.lua"))() end)
+
+-- 8. FUN
+C("FUN", {"sit"}, "Sit down", function() local h=getHum() if h then h.Sit=true end end)
+C("FUN", {"headless"}, "Remove head", function() local h=getChar():FindFirstChild("Head") if h then h.Transparency=1 if h:FindFirstChild("face") then h.face:Destroy() end end end)
+C("FUN", {"spaghetti"}, "Stretch Limbs", function() for _,p in pairs(getChar():GetChildren()) do if p:IsA("BasePart") and p.Name~="HumanoidRootPart" then p.Size = p.Size * Vector3.new(1,5,1) end end end)
+C("FUN", {"disco"}, "Rainbow body", function(a,s) if s then State.Dsc=RunService.RenderStepped:Connect(function() for _,p in pairs(getChar():GetDescendants()) do if p:IsA("BasePart") then p.Color=Color3.fromHSV(tick()%5/5,1,1) end end end) else if State.Dsc then State.Dsc:Disconnect() end end end, true)
+
+
+-- [[ 🔔 NOTIFICATION SYSTEM ]] --
+local MainGui = create("ScreenGui", {Name = "DevanshAdminPanel", Parent = UI_PARENT, ResetOnSpawn = false, DisplayOrder = 999})
+local NotifFrame = create("Frame", {BackgroundTransparency = 1, Size = UDim2.new(0, 220, 1, 0), Position = isMobile and UDim2.new(0.5, -110, 0, 20) or UDim2.new(1, -240, 0, 20), Parent = MainGui})
+create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 5), Parent = NotifFrame})
+
+local function Notify(title, msg, colorHex)
+	local cHex = colorHex or "00C8FF"
+	local card = create("Frame", {Size = UDim2.new(1, 0, 0, 50), BackgroundColor3 = COLORS.CardBg, Position = UDim2.new(1, 50, 0, 0), Parent = NotifFrame, ClipsDescendants = true})
+	addStroke(COLORS.Border, 1, card)
+	create("Frame", {Size = UDim2.new(0, 3, 1, 0), BackgroundColor3 = Color3.fromHex(cHex), BorderSizePixel = 0, Parent = card})
+	create("TextLabel", {Size = UDim2.new(1, -15, 0, 20), Position = UDim2.new(0, 10, 0, 5), BackgroundTransparency = 1, RichText = true, Text = "<b><font color='#"..cHex.."'>"..title.."</font></b>", TextSize = 12, Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left, Parent = card})
+	create("TextLabel", {Size = UDim2.new(1, -15, 0, 20), Position = UDim2.new(0, 10, 0, 25), BackgroundTransparency = 1, RichText = true, Text = "<font color='#8888AA'>"..msg.."</font>", TextSize = 11, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, Parent = card})
+	
+	tween(card, T_SPRING, {Position = UDim2.new(0, 0, 0, 0)})
+	task.delay(3, function() tween(card, T_FAST, {Position = UDim2.new(1, 50, 0, 0)}) task.delay(0.2, function() card:Destroy() end) end)
 end
 
-local function getChar() return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait() end
-local function getHRP() return getChar():FindFirstChild("HumanoidRootPart") end
-local function getHum() return getChar():FindFirstChild("Humanoid") end
+-- [[ 📊 TOP-LEFT FLOATING STATS HUD (Borderless Text Only) ]] --
+local StatsHUD = create("TextLabel", {
+	Size = UDim2.new(0, 200, 0, 100),
+	Position = UDim2.new(0, 10, 0, 10),
+	BackgroundTransparency = 1,
+	Text = "",
+	TextColor3 = COLORS.Border,
+	TextStrokeTransparency = 0,
+	TextStrokeColor3 = Color3.new(0,0,0),
+	TextSize = 14,
+	Font = Enum.Font.Code,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	TextYAlignment = Enum.TextYAlignment.Top,
+	Parent = MainGui
+})
 
--- 🏃 Movement
-addCmd("Movement", "🏃", "fly", "Smooth flying", true, function(args, state)
-	if state then
-		local hrp = getHRP()
-		if not hrp then return end
-		State.FlyBV = create("BodyVelocity", {MaxForce = Vector3.new(9e9, 9e9, 9e9), Velocity = Vector3.new(0,0,0), Parent = hrp})
-		State.FlyBG = create("BodyGyro", {MaxTorque = Vector3.new(9e9, 9e9, 9e9), P = 9000, CFrame = Camera.CFrame, Parent = hrp})
-		
-		State.FlyLoop = RunService.RenderStepped:Connect(function()
-			local camCF = Camera.CFrame
-			local moveVec = require(LocalPlayer.PlayerScripts.PlayerModule):GetControls():GetMoveVector()
-			local vel = Vector3.new(0,0,0)
-			
-			if moveVec.Magnitude > 0 then
-				vel = (camCF.RightVector * moveVec.X + camCF.LookVector * -moveVec.Z) * 50
-			end
-			if State.FlyUp then vel = vel + Vector3.new(0, 50, 0) end
-			if State.FlyDown then vel = vel - Vector3.new(0, 50, 0) end
-			
-			State.FlyBV.Velocity = vel
-			State.FlyBG.CFrame = camCF
-		end)
-		getHum().PlatformStand = true
-		if isMobile and State.MobileFlyUI then State.MobileFlyUI.Enabled = true end
-	else
-		if State.FlyLoop then State.FlyLoop:Disconnect() end
-		if State.FlyBV then State.FlyBV:Destroy() end
-		if State.FlyBG then State.FlyBG:Destroy() end
-		local hum = getHum() if hum then hum.PlatformStand = false end
-		if isMobile and State.MobileFlyUI then State.MobileFlyUI.Enabled = false end
-	end
+RunService.RenderStepped:Connect(function()
+	local t = ""
+	if State.ShowFPS then t = t .. "FPS: " .. math.floor(Workspace:GetRealPhysicsFPS()) .. "\n" end
+	if State.ShowPing then t = t .. "Ping: " .. math.floor(LocalPlayer:GetNetworkPing() * 1000) .. "ms\n" end
+	if State.ShowPos then local h = getHRP() if h then t = t .. "Pos: " .. math.floor(h.Position.X) .. ", " .. math.floor(h.Position.Y) .. ", " .. math.floor(h.Position.Z) .. "\n" end end
+	StatsHUD.Text = t
 end)
 
-addCmd("Movement", "🏃", "speed", "Set walk speed (max 500)", false, function(args)
-	local hum = getHum() if hum then hum.WalkSpeed = math.clamp(tonumber(args[1]) or 16, 0, 500) end
-end)
-addCmd("Movement", "🏃", "jump", "Set jump power", false, function(args)
-	local hum = getHum() if hum then hum.UseJumpPower = true; hum.JumpPower = tonumber(args[1]) or 50 end
-end)
-addCmd("Movement", "🏃", "noclip", "Toggle no-clip", true, function(args, state)
-	if state then
-		State.NoclipLoop = RunService.Stepped:Connect(function()
-			for _, p in pairs(getChar():GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = false end end
-		end)
-	else
-		if State.NoclipLoop then State.NoclipLoop:Disconnect() end
-	end
-end)
-addCmd("Movement", "🏃", "tp", "Teleport to x y z", false, function(args)
-	local hrp = getHRP() if hrp and args[1] and args[2] and args[3] then hrp.CFrame = CFrame.new(tonumber(args[1]), tonumber(args[2]), tonumber(args[3])) end
-end)
-addCmd("Movement", "🏃", "bringme", "Teleport to part", false, function(args)
-	local hrp = getHRP() local target = Workspace:FindFirstChild(args[1] or "")
-	if hrp and target and target:IsA("BasePart") then hrp.CFrame = target.CFrame end
-end)
-addCmd("Movement", "🏃", "gravity", "Set workspace gravity", false, function(args)
-	Workspace.Gravity = tonumber(args[1]) or 196.2
-end)
 
--- 👁️ Visual
-addCmd("Visual", "👁️", "esp", "Toggle player ESP boxes", true, function(args, state)
-	if state then
-		State.ESPLoop = RunService.RenderStepped:Connect(function()
-			for _, p in pairs(Players:GetPlayers()) do
-				if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-					local hrp = p.Character.HumanoidRootPart
-					if not hrp:FindFirstChild("DevanshESP") then
-						local box = create("BoxHandleAdornment", {Name="DevanshESP", Size=Vector3.new(4,5.5,2), Adornee=hrp, AlwaysOnTop=true, ZIndex=10, Transparency=0.5, Color3=p.TeamColor and p.TeamColor.Color or COLORS.Active, Parent=hrp})
-					end
-				end
-			end
-		end)
-	else
-		if State.ESPLoop then State.ESPLoop:Disconnect() end
-		for _, p in pairs(Players:GetPlayers()) do
-			if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-				local esp = p.Character.HumanoidRootPart:FindFirstChild("DevanshESP")
-				if esp then esp:Destroy() end
-			end
-		end
-	end
-end)
-addCmd("Visual", "👁️", "fov", "Set Camera FOV", false, function(args) Camera.FieldOfView = tonumber(args[1]) or 70 end)
-addCmd("Visual", "👁️", "fullbright", "Max Lighting visibility", true, function(args, state)
-	if state then
-		State.OldAmbient = Lighting.Ambient
-		State.FBLoop = RunService.RenderStepped:Connect(function() Lighting.Ambient = Color3.new(1,1,1); Lighting.Brightness = 2 end)
-	else
-		if State.FBLoop then State.FBLoop:Disconnect() Lighting.Ambient = State.OldAmbient or Color3.fromRGB(128,128,128) end
-	end
-end)
-addCmd("Visual", "👁️", "thirdperson", "Lock to 3rd person", false, function() LocalPlayer.CameraMode = Enum.CameraMode.Classic end)
-addCmd("Visual", "👁️", "freecam", "Free camera", true, function(args, state)
-	if state then Camera.CameraType = Enum.CameraType.Scriptable else Camera.CameraType = Enum.CameraType.Custom end
-end)
+-- [[ 💻 GUI CONSTRUCTION (Compact & Text-Only) ]] --
+-- Pulse Pill Button (130x30)
+local PillBtn = create("TextButton", {Size = UDim2.new(0, 130, 0, 30), Position = isMobile and UDim2.new(1, -140, 1, -50) or UDim2.new(0, 20, 0, 50), BackgroundColor3 = COLORS.Bg, Text = "", Parent = MainGui})
+addCorner(15, PillBtn)
+local PillStroke = addStroke(COLORS.Border, 1.2, PillBtn)
+create("TextLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, RichText = true, Text = "<b><font color='#00C8FF'>⚙ DEVANSH</font></b>", TextSize = 12, Font = Enum.Font.GothamBold, Parent = PillBtn})
+task.spawn(function() while true do tween(PillStroke, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Thickness = 2.5}) task.wait(1.5) tween(PillStroke, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Thickness = 1}) task.wait(1.5) end end)
 
--- ⚔️ Combat
-addCmd("Combat", "⚔️", "godmode", "Invincibility loop", true, function(args, state)
-	if state then State.GodLoop = RunService.RenderStepped:Connect(function() local h = getHum() if h then h.Health = h.MaxHealth end end)
-	else if State.GodLoop then State.GodLoop:Disconnect() end end
-end)
-addCmd("Combat", "⚔️", "infinite_jump", "Unlimited jumping", true, function(args, state)
-	if state then State.InfJump = UserInputService.JumpRequest:Connect(function() local h = getHum() if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end end)
-	else if State.InfJump then State.InfJump:Disconnect() end end
-end)
-addCmd("Combat", "⚔️", "hitbox", "Expand HRP hitbox", false, function(args)
-	local size = tonumber(args[1]) or 2
-	for _, p in pairs(Players:GetPlayers()) do
-		if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-			p.Character.HumanoidRootPart.Size = Vector3.new(size, size, size)
-			p.Character.HumanoidRootPart.Transparency = 0.8
-		end
-	end
-end)
+-- Canvas Group for fading
+local CG = create("CanvasGroup", {Size = isMobile and UDim2.new(0, 300, 0, 380) or UDim2.new(0, 320, 0, 400), Position = UDim2.new(0.5, 0, 0.5, 0), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, Visible = false, Parent = MainGui})
+local PanelScale = create("UIScale", {Scale = 0.92, Parent = CG})
 
--- 🌍 World
-addCmd("World", "🌍", "time", "Set ClockTime", false, function(args) Lighting.ClockTime = tonumber(args[1]) or 14 end)
-addCmd("World", "🌍", "fog", "Set FogEnd", false, function(args) Lighting.FogEnd = tonumber(args[1]) or 100000 end)
-addCmd("World", "🌍", "ambient", "Set Ambient RGB", false, function(args)
-	if args[1] and args[2] and args[3] then Lighting.Ambient = Color3.fromRGB(tonumber(args[1]), tonumber(args[2]), tonumber(args[3])) end
-end)
+local PanelFrame = create("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = COLORS.Bg, Parent = CG})
+addCorner(8, PanelFrame); addStroke(COLORS.Border, 1.2, PanelFrame)
 
--- 👤 Player
-addCmd("Player", "👤", "invisible", "Make char transparent", false, function()
-	for _, p in pairs(getChar():GetDescendants()) do if p:IsA("BasePart") or p:IsA("Decal") then p.Transparency = 1 end end
-end)
-addCmd("Player", "👤", "visible", "Restore visibility", false, function()
-	for _, p in pairs(getChar():GetDescendants()) do if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" or p:IsA("Decal") then p.Transparency = 0 end end
-end)
-addCmd("Player", "👤", "char", "Load appearance (UserId)", false, function(args)
-	local h = getHum() if h and args[1] then h:ApplyDescription(Players:GetHumanoidDescriptionFromUserId(tonumber(args[1]))) end
-end)
-addCmd("Player", "👤", "resetchar", "Reset character", false, function() local h = getHum() if h then h.Health = 0 end end)
-addCmd("Player", "👤", "name", "Custom overhead name", false, function(args)
-	local head = getChar():FindFirstChild("Head")
-	if head then
-		local bg = create("BillboardGui", {Name="DevName", Size=UDim2.new(0,100,0,30), StudsOffset=Vector3.new(0,2,0), Parent=head})
-		create("TextLabel", {Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text=table.concat(args, " "), TextColor3=COLORS.Border, TextScaled=true, Font=Enum.Font.GothamBold, Parent=bg})
-	end
-end)
+-- TOP BAR (38px)
+local TopBar = create("Frame", {Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1, Active = true, Parent = PanelFrame})
+local LogoBox = create("Frame", {Size = UDim2.new(0, 24, 0, 24), Position = UDim2.new(0, 10, 0, 7), BackgroundColor3 = COLORS.Border, Parent = TopBar})
+addCorner(4, LogoBox)
+create("TextLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "D", TextColor3 = Color3.new(1,1,1), Font = Enum.Font.GothamBold, TextSize = 16, Parent = LogoBox})
+create("TextLabel", {Size = UDim2.new(1, -100, 0, 20), Position = UDim2.new(0, 42, 0, 4), BackgroundTransparency = 1, RichText = true, Text = "<b><font color='#00C8FF'>DEVANSH</font></b><font color='#CCCCEE'> Admin Panel</font>", Font = Enum.Font.GothamMedium, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, Parent = TopBar})
+create("TextLabel", {Size = UDim2.new(1, -100, 0, 15), Position = UDim2.new(0, 42, 0, 20), BackgroundTransparency = 1, RichText = true, Text = "<font size='10' color='#404468'>v8.1  •  200+ Commands  •  Universal</font>", Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, Parent = TopBar})
+local MinBtn = create("TextButton", {Size = UDim2.new(0, 30, 0, 38), Position = UDim2.new(1, -60, 0, 0), BackgroundTransparency = 1, Text = "—", TextColor3 = COLORS.Text, Font = Enum.Font.GothamBold, TextSize = 14, Parent = TopBar})
+local CloseBtn = create("TextButton", {Size = UDim2.new(0, 30, 0, 38), Position = UDim2.new(1, -30, 0, 0), BackgroundTransparency = 1, Text = "✕", TextColor3 = COLORS.Text, Font = Enum.Font.GothamBold, TextSize = 14, Parent = TopBar})
 
--- 🔧 Utility
-addCmd("Utility", "🔧", "showstats", "HUD (FPS/Ping)", true, function(args, state)
-	if state then
-		State.StatsUI = create("ScreenGui", {Parent = UI_PARENT, Name = "DevStats"})
-		local frame = create("Frame", {Size = UDim2.new(0, 120, 0, 50), Position = UDim2.new(0, 10, 0, 10), BackgroundColor3 = COLORS.Bg, BackgroundTransparency = 0.15, Parent = State.StatsUI})
-		addCorner(4, frame); addStroke(COLORS.Border, frame)
-		local txt = create("TextLabel", {Size = UDim2.new(1, -10, 1, -10), Position = UDim2.new(0, 5, 0, 5), BackgroundTransparency = 1, TextColor3 = COLORS.Text, TextSize = 11, Font = Enum.Font.Code, Parent = frame})
-		State.StatsLoop = RunService.RenderStepped:Connect(function()
-			txt.Text = "FPS: " .. math.floor(1 / RunService.RenderStepped:Wait()) .. "\nPing: " .. math.floor(LocalPlayer:GetNetworkPing() * 1000) .. "ms"
-		end)
-	else
-		if State.StatsLoop then State.StatsLoop:Disconnect() end
-		if State.StatsUI then State.StatsUI:Destroy() end
-	end
-end)
-addCmd("Utility", "🔧", "delhats", "Remove accessories", false, function() local h = getHum() if h then h:RemoveAccessories() end end)
+-- TABS (34px)
+local TabsFrame = create("ScrollingFrame", {Size = UDim2.new(1, -16, 0, 34), Position = UDim2.new(0, 8, 0, 38), BackgroundTransparency = 1, ScrollBarThickness = 0, ScrollingDirection = Enum.ScrollingDirection.X, AutomaticCanvasSize = Enum.AutomaticSize.X, CanvasSize = UDim2.new(0,0,0,0), Parent = PanelFrame})
+create("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 4), Parent = TabsFrame})
 
--- ⭐ Fun
-addCmd("Fun", "⭐", "spin", "Spin via BodyAngularVel", true, function(args, state)
-	local hrp = getHRP()
-	if state and hrp then
-		State.SpinVel = create("BodyAngularVelocity", {MaxTorque=Vector3.new(9e9,9e9,9e9), AngularVelocity=Vector3.new(0, 50, 0), Parent=hrp})
-	else
-		if State.SpinVel then State.SpinVel:Destroy() end
-	end
-end)
-addCmd("Fun", "⭐", "bighead", "Resize head", false, function(args)
-	local head = getChar():FindFirstChild("Head") local s = tonumber(args[1]) or 3
-	if head then head.Size = Vector3.new(s, s, s) end
-end)
-addCmd("Fun", "⭐", "trail", "Rainbow trail", true, function(args, state)
-	local hrp = getHRP()
-	if state and hrp then
-		local a0 = create("Attachment", {Position=Vector3.new(0,1,0), Parent=hrp})
-		local a1 = create("Attachment", {Position=Vector3.new(0,-1,0), Parent=hrp})
-		State.TrailObj = create("Trail", {Attachment0=a0, Attachment1=a1, Color=ColorSequence.new(COLORS.Border), Parent=hrp})
-	else
-		if State.TrailObj then State.TrailObj.Attachment0:Destroy() State.TrailObj.Attachment1:Destroy() State.TrailObj:Destroy() end
-	end
-end)
+-- SEARCH (30px)
+local SearchFrame = create("Frame", {Size = UDim2.new(1, -16, 0, 26), Position = UDim2.new(0, 8, 0, 74), BackgroundColor3 = COLORS.CardBg, Parent = PanelFrame})
+addCorner(4, SearchFrame); addStroke(Color3.fromRGB(40,40,60), 1, SearchFrame)
+local SearchBox = create("TextBox", {Size = UDim2.new(1, -16, 1, 0), Position = UDim2.new(0, 8, 0, 0), BackgroundTransparency = 1, TextColor3 = COLORS.Text, PlaceholderText = "Search commands...", PlaceholderColor3 = COLORS.Dim, Text = "", Font = Enum.Font.Gotham, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ClearTextOnFocus = false, Parent = SearchFrame})
 
--- [[ SECTION: COMMAND PARSER ]]
-local function executeCommand(inputStr)
-	local args = string.split(inputStr, " ")
-	local cmdName = table.remove(args, 1):lower():gsub("^/", "")
+-- COMMANDS SCROLLER
+local ListFrame = create("ScrollingFrame", { Size = UDim2.new(1, -16, 1, -148), Position = UDim2.new(0, 8, 0, 104), BackgroundTransparency = 1, ScrollBarThickness = 2, ScrollBarImageColor3 = COLORS.Border, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(0,0,0,0), Parent = PanelFrame})
+create("UIListLayout", {Padding = UDim.new(0, 2), Parent = ListFrame})
+
+-- INPUT BAR
+local InputContainer = create("Frame", {Size = UDim2.new(1, -16, 0, 36), Position = UDim2.new(0, 8, 1, -40), BackgroundTransparency = 1, Parent = PanelFrame})
+local CmdInput = create("TextBox", {Size = UDim2.new(1, -40, 1, 0), BackgroundColor3 = COLORS.CardBg, Text = "", PlaceholderText = "/command [target] [val]", TextColor3 = COLORS.Border, PlaceholderColor3 = COLORS.Dim, Font = Enum.Font.Code, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ClearTextOnFocus = false, Parent = InputContainer})
+create("UIPadding", {PaddingLeft = UDim.new(0, 8), Parent = CmdInput})
+addCorner(4, CmdInput); create("Frame", {Size = UDim2.new(0, 2, 1, 0), BackgroundColor3 = COLORS.Border, BorderSizePixel = 0, Parent = CmdInput})
+local RunBtn = create("TextButton", {Size = UDim2.new(0, 36, 1, 0), Position = UDim2.new(1, -36, 0, 0), BackgroundColor3 = COLORS.CardBg, Text = "▶", TextColor3 = COLORS.Border, Font = Enum.Font.GothamBold, TextSize = 14, Parent = InputContainer})
+addCorner(4, RunBtn); addStroke(COLORS.Border, 1, RunBtn)
+
+
+-- [[ ⚙️ RENDERING & LOGIC ]] --
+local activeCategory = "MOV"
+local tabObjects = {}
+
+local function PopulateList(filter)
+	tween(ListFrame, T_FADE, {ScrollBarImageTransparency = 1})
+	for _, child in ipairs(ListFrame:GetChildren()) do if child:IsA("TextButton") then tween(child, T_FADE, {BackgroundTransparency = 1}) child:Destroy() end end
+	filter = filter and filter:lower() or ""
 	
-	local toggleOff = (args[1] and args[1]:lower() == "off")
-	if toggleOff then table.remove(args, 1) end
-
 	for _, cmd in ipairs(Commands) do
-		if cmd.name == cmdName then
-			local success, err = pcall(function()
-				if cmd.isToggle then
-					cmd.active = not toggleOff
-					cmd.func(args, cmd.active)
-					-- Update UI Toggle Dot visually
-					if Toggles[cmd.name] then
-						Toggles[cmd.name].TextColor3 = cmd.active and COLORS.Active or COLORS.Inactive
-					end
-					Notify("Toggled " .. cmdName .. (cmd.active and " ON" or " OFF"))
+		local match = false
+		if filter == "" and cmd.c == activeCategory then match = true end
+		if filter ~= "" then
+			if cmd.d:lower():find(filter) then match = true end
+			for _, alias in ipairs(cmd.a) do if alias:lower():find(filter) then match = true end end
+		end
+		
+		if match then
+			local row = create("TextButton", {Size = UDim2.new(1, -4, 0, 30), BackgroundColor3 = COLORS.CardBg, AutoButtonColor = false, Text = "", Parent = ListFrame})
+			create("Frame", {Size = UDim2.new(0, 2, 1, 0), BackgroundColor3 = COLORS.Border, BorderSizePixel = 0, Parent = row})
+			create("TextLabel", {Size = UDim2.new(0, 70, 1, 0), Position = UDim2.new(0, 10, 0, 0), BackgroundTransparency = 1, RichText = true, Text = "<b><font color='#00C8FF'>/" .. cmd.a[1] .. "</font></b>", Font = Enum.Font.Code, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, Parent = row})
+			create("TextLabel", {Size = UDim2.new(1, -120, 1, 0), Position = UDim2.new(0, 80, 0, 0), BackgroundTransparency = 1, RichText = true, Text = "<font color='#808098'>— " .. cmd.d .. "</font>", Font = Enum.Font.Gotham, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Parent = row})
+			
+			local stateLbl = create("TextLabel", {Size = UDim2.new(0, 30, 1, 0), Position = UDim2.new(1, -35, 0, 0), BackgroundTransparency = 1, RichText = true, Text = cmd.on and "<font color='#50FF96'><b>ON</b></font>" or "<font color='#505064'>OFF</font>", Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Right, Parent = row})
+			stateLbl.Visible = cmd.tgl
+			
+			row.MouseButton1Click:Connect(function()
+				tween(row, T_FLASH, {BackgroundColor3 = COLORS.Border})
+				task.delay(0.1, function() tween(row, T_FADE, {BackgroundColor3 = COLORS.CardBg}) end)
+				if cmd.tgl then
+					cmd.on = not cmd.on
+					stateLbl.Text = cmd.on and "<font color='#50FF96'><b>ON</b></font>" or "<font color='#505064'>OFF</font>"
+					pcall(function() cmd.f({}, cmd.on) end)
+					Notify(cmd.on and "✔ Enabled" or "✖ Disabled", "/"..cmd.a[1], cmd.on and "50FF96" or "505064")
 				else
-					cmd.func(args)
-					Notify("Executed " .. cmdName)
+					CmdInput.Text = "/" .. cmd.a[1] .. " "; CmdInput:CaptureFocus()
 				end
 			end)
-			if not success then Notify("Error: " .. cmdName, "⚠️") warn(err) end
-			return
-		end
-	end
-	Notify("Unknown command: " .. cmdName, "❌")
-end
-
--- [[ SECTION: GUI CREATION ]]
-local MainGui = create("ScreenGui", {Name = "DevanshAdminPanel", Parent = UI_PARENT, ResetOnSpawn = false})
-
--- Pill Button (Collapsed State)
-local PillBtn = create("TextButton", {
-	Size = UDim2.new(0, 120, 0, 32), Position = pillPosition, BackgroundColor3 = COLORS.Bg,
-	BackgroundTransparency = 0.15, Text = PILL_TITLE, TextColor3 = COLORS.Text,
-	Font = Enum.Font.GothamBold, TextSize = 12, Parent = MainGui
-})
-addCorner(8, PillBtn); addStroke(COLORS.Border, PillBtn)
-
--- Main Panel (Expanded State)
-local pWidth, pHeight = isMobile and 300 or 280, isMobile and 420 or 380
-local PanelFrame = create("Frame", {
-	Size = UDim2.new(0, pWidth, 0, pHeight), Position = panelPosition,
-	BackgroundColor3 = COLORS.Bg, BackgroundTransparency = 0.15, Visible = false, Parent = MainGui
-})
-addCorner(8, PanelFrame); addStroke(COLORS.Border, PanelFrame)
-
--- Top Bar
-local TopBar = create("Frame", {Size = UDim2.new(1, 0, 0, 28), BackgroundTransparency = 1, Parent = PanelFrame})
-create("TextLabel", {
-	Size = UDim2.new(1, -60, 1, 0), Position = UDim2.new(0, 10, 0, 0), BackgroundTransparency = 1,
-	Text = PANEL_TITLE, TextColor3 = COLORS.Text, Font = Enum.Font.GothamBold, TextSize = 14,
-	TextXAlignment = Enum.TextXAlignment.Left, Parent = TopBar
-})
-local MinBtn = create("TextButton", {Size = UDim2.new(0, 24, 0, 24), Position = UDim2.new(1, -54, 0, 2), BackgroundTransparency = 1, Text = "—", TextColor3 = COLORS.Text, Font = Enum.Font.Gotham, TextSize = 14, Parent = TopBar})
-local CloseBtn = create("TextButton", {Size = UDim2.new(0, 24, 0, 24), Position = UDim2.new(1, -26, 0, 2), BackgroundTransparency = 1, Text = "✕", TextColor3 = COLORS.Text, Font = Enum.Font.Gotham, TextSize = 14, Parent = TopBar})
-
--- Category Tabs
-local TabsFrame = create("ScrollingFrame", {
-	Size = UDim2.new(1, -10, 0, 32), Position = UDim2.new(0, 5, 0, 30), BackgroundTransparency = 1,
-	CanvasSize = UDim2.new(0, 260, 0, 0), ScrollBarThickness = 0, ScrollingDirection = Enum.ScrollingDirection.X, Parent = PanelFrame
-})
-local TabListLayout = create("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 5), Parent = TabsFrame})
-
--- Command List
-local ListFrame = create("ScrollingFrame", {
-	Size = UDim2.new(1, -10, 1, -100), Position = UDim2.new(0, 5, 0, 65), BackgroundTransparency = 1,
-	ScrollBarThickness = 2, CanvasSize = UDim2.new(0, 0, 0, 0), Parent = PanelFrame
-})
-local CmdListLayout = create("UIListLayout", {Padding = UDim.new(0, 2), Parent = ListFrame})
-
--- Input Bar
-local InputFrame = create("Frame", {Size = UDim2.new(1, -10, 0, 30), Position = UDim2.new(0, 5, 1, -35), BackgroundTransparency = 1, Parent = PanelFrame})
-local CmdInput = create("TextBox", {
-	Size = UDim2.new(1, -35, 1, 0), BackgroundColor3 = Color3.fromRGB(20, 20, 30), BackgroundTransparency = 0.2,
-	Text = "", PlaceholderText = "/command args...", TextColor3 = COLORS.Text, Font = Enum.Font.Code,
-	TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, ClearTextOnFocus = false, Parent = InputFrame
-})
-addCorner(4, CmdInput); addStroke(COLORS.Placeholder, CmdInput)
-create("UIPadding", {PaddingLeft = UDim.new(0, 8), Parent = CmdInput})
-
-local RunBtn = create("TextButton", {
-	Size = UDim2.new(0, 30, 0, 30), Position = UDim2.new(1, -30, 0, 0), BackgroundColor3 = Color3.fromRGB(20, 20, 30),
-	BackgroundTransparency = 0.2, Text = "▶", TextColor3 = COLORS.Border, Font = Enum.Font.Gotham, TextSize = 12, Parent = InputFrame
-})
-addCorner(4, RunBtn); addStroke(COLORS.Placeholder, RunBtn)
-
--- Footer
-create("TextLabel", {
-	Size = UDim2.new(1, 0, 0, 10), Position = UDim2.new(0, 0, 1, -12), BackgroundTransparency = 1,
-	Text = "Devansh Admin Panel • Universal • " .. DEV_PANEL_VERSION, TextColor3 = COLORS.Placeholder,
-	Font = Enum.Font.Gotham, TextSize = 9, Parent = PanelFrame
-})
-
--- [[ SECTION: POPULATE TABS & COMMANDS ]]
-local activeCategory = "Movement"
-local function PopulateList()
-	for _, child in ipairs(ListFrame:GetChildren()) do if child:IsA("Frame") then child:Destroy() end end
-	local ySize = 0
-	
-	for _, cmd in ipairs(Commands) do
-		if cmd.category == activeCategory then
-			local row = create("TextButton", {Size = UDim2.new(1, -4, 0, 28), BackgroundTransparency = 1, Text = "", Parent = ListFrame})
-			create("TextLabel", {Size = UDim2.new(0, 25, 1, 0), BackgroundTransparency = 1, Text = "["..cmd.emoji.."]", TextColor3 = COLORS.Text, Font = Enum.Font.Gotham, TextSize = 11, Parent = row})
-			create("TextLabel", {Size = UDim2.new(0, 60, 1, 0), Position = UDim2.new(0, 25, 0, 0), BackgroundTransparency = 1, Text = cmd.name, TextColor3 = COLORS.Border, Font = Enum.Font.Code, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, Parent = row})
-			create("TextLabel", {Size = UDim2.new(1, -115, 1, 0), Position = UDim2.new(0, 85, 0, 0), BackgroundTransparency = 1, Text = "— " .. cmd.desc, TextColor3 = COLORS.Placeholder, Font = Enum.Font.Gotham, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Parent = row})
 			
-			if cmd.isToggle then
-				local dot = create("TextLabel", {Size = UDim2.new(0, 20, 1, 0), Position = UDim2.new(1, -20, 0, 0), BackgroundTransparency = 1, Text = "●", TextColor3 = cmd.active and COLORS.Active or COLORS.Inactive, Font = Enum.Font.Gotham, TextSize = 14, Parent = row})
-				Toggles[cmd.name] = dot
-				row.MouseButton1Click:Connect(function() executeCommand("/" .. cmd.name .. (cmd.active and " off" or "")) end)
-			else
-				row.MouseButton1Click:Connect(function() CmdInput.Text = "/" .. cmd.name .. " "; CmdInput:CaptureFocus() end)
+			if not isMobile then
+				row.MouseEnter:Connect(function() tween(row, T_FAST, {BackgroundTransparency = 0.1}) end)
+				row.MouseLeave:Connect(function() tween(row, T_FAST, {BackgroundTransparency = 0}) end)
 			end
-			ySize = ySize + 30
 		end
 	end
-	ListFrame.CanvasSize = UDim2.new(0, 0, 0, ySize)
+	tween(ListFrame, T_FAST, {ScrollBarImageTransparency = 0})
 end
 
-local categories = {"Movement", "Visual", "Combat", "World", "Player", "Utility", "Fun"}
-local emojis = {"🏃", "👁️", "⚔️", "🌍", "👤", "🔧", "⭐"}
-
-for i, cat in ipairs(categories) do
-	local tab = create("TextButton", {Size = UDim2.new(0, 32, 0, 32), BackgroundColor3 = Color3.fromRGB(20, 20, 30), BackgroundTransparency = 0.5, Text = emojis[i], TextSize = 14, Parent = TabsFrame})
-	addCorner(4, tab); addStroke(COLORS.Placeholder, tab)
-	tab.MouseButton1Click:Connect(function() activeCategory = cat; PopulateList() end)
+local cats = {"DEV", "MOV", "VIS", "CMB", "WLD", "PLR", "UTL", "FUN"}
+for _, cat in ipairs(cats) do
+	local tab = create("TextButton", {Size = UDim2.new(0, 42, 0, 30), BackgroundColor3 = COLORS.TabSel, BackgroundTransparency = (cat==activeCategory) and 0 or 0.6, AutoButtonColor = false, RichText = true, Text = (cat==activeCategory) and "<b><font color='#00C8FF'>"..cat.."</font></b>" or "<font color='#808098'>"..cat.."</font>", Font = Enum.Font.GothamBold, TextSize = 11, Parent = TabsFrame})
+	addCorner(4, tab)
+	local bborder = create("Frame", {Size = UDim2.new(1, 0, 0, 2), Position = UDim2.new(0, 0, 1, -2), BackgroundColor3 = COLORS.Border, BorderSizePixel = 0, Visible = (cat==activeCategory), Parent = tab})
+	tabObjects[cat] = {Btn = tab, Border = bborder, name = cat}
+	tab.MouseButton1Click:Connect(function()
+		activeCategory = cat; SearchBox.Text = ""
+		for cName, objs in pairs(tabObjects) do
+			objs.Border.Visible = (cName == activeCategory)
+			objs.Btn.BackgroundTransparency = (cName == activeCategory) and 0 or 0.6
+			objs.Btn.Text = (cName == activeCategory) and "<b><font color='#00C8FF'>"..objs.name.."</font></b>" or "<font color='#808098'>"..objs.name.."</font>"
+		end
+		PopulateList()
+	end)
 end
 PopulateList()
 
--- [[ SECTION: GUI BEHAVIOR & DRAGGING ]]
-local function dragElement(dragPart, movePart)
-	local dragging, dragInput, dragStart, startPos
-	dragPart.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = true; dragStart = input.Position; startPos = movePart.Position
-			input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+SearchBox.Changed:Connect(function(p) if p == "Text" then PopulateList(SearchBox.Text) end end)
+
+local function executeCmd(str)
+	local args = string.split(str, " ")
+	local name = table.remove(args, 1):lower():gsub("^/", "")
+	for _, cmd in ipairs(Commands) do
+		for _, alias in ipairs(cmd.a) do
+			if alias == name then
+				if cmd.tgl then
+					cmd.on = not cmd.on
+					local s, e = pcall(function() cmd.f(args, cmd.on) end)
+					if s then Notify(cmd.on and "✔ Enabled" or "✖ Disabled", "/"..name, cmd.on and "50FF96" or "505064") else Notify("✖ Error", tostring(e), "FF5050") end
+					PopulateList(SearchBox.Text)
+				else
+					local s, e = pcall(function() cmd.f(args) end)
+					if s then Notify("✔ Executed", "/"..name, "00C8FF") else Notify("✖ Error", tostring(e), "FF5050") end
+				end
+				return
+			end
 		end
-	end)
-	dragPart.InputChanged:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
-	end)
-	UserInputService.InputChanged:Connect(function(input)
-		if input == dragInput and dragging then
-			local delta = input.Position - dragStart
-			movePart.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-			
-			-- Edge Snapping
-			local pos = movePart.AbsolutePosition
-			if pos.X < 10 then movePart.Position = UDim2.new(0, 10, movePart.Position.Y.Scale, movePart.Position.Y.Offset) end
-			if pos.Y < 10 then movePart.Position = UDim2.new(movePart.Position.X.Scale, movePart.Position.X.Offset, 0, 10) end
-			
-			if movePart == PanelFrame then panelPosition = movePart.Position else pillPosition = movePart.Position end
-		end
-	end)
+	end
+	Notify("✖ Unknown", "Command not found", "FF5050")
 end
 
-dragElement(TopBar, PanelFrame)
-dragElement(PillBtn, PillBtn)
-
-PillBtn.MouseButton1Click:Connect(function()
-	PillBtn.Visible = false; PanelFrame.Visible = true; PanelFrame.Position = panelPosition
+RunBtn.MouseButton1Click:Connect(function() 
+	tween(RunBtn, TweenInfo.new(0.08, Enum.EasingStyle.Linear), {BackgroundColor3 = Color3.fromRGB(0,150,200)})
+	task.delay(0.15, function() tween(RunBtn, T_FAST, {BackgroundColor3 = COLORS.CardBg}) end)
+	if CmdInput.Text ~= "" then executeCmd(CmdInput.Text) CmdInput.Text = "" end 
 end)
+CmdInput.FocusLost:Connect(function(e) if e and CmdInput.Text ~= "" then executeCmd(CmdInput.Text) CmdInput.Text = "" end end)
 
-MinBtn.MouseButton1Click:Connect(function()
-	PanelFrame.Visible = false; PillBtn.Visible = true; PillBtn.Position = pillPosition
-end)
+-- [[ 🖱️ ANIMATIONS & WINDOW LOGIC ]] --
+local function makeDraggable(dragArea, moveFrame)
+	local dragging, dragInput, startPos, startMousePos
+	dragArea.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true; startPos = moveFrame.Position; startMousePos = input.Position input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end) end end)
+	dragArea.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end end)
+	UserInputService.InputChanged:Connect(function(input) if input == dragInput and dragging then local delta = input.Position - startMousePos moveFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y) end end)
+end
 
-CloseBtn.MouseButton1Click:Connect(function()
-	PanelFrame.Visible = false; PillBtn.Visible = false
-	Notify("Panel Hidden. PC: Press Right Shift to reopen.")
-end)
+makeDraggable(TopBar, CG); makeDraggable(PillBtn, PillBtn)
 
--- Input Execution
-RunBtn.MouseButton1Click:Connect(function() if CmdInput.Text ~= "" then executeCommand(CmdInput.Text); CmdInput.Text = "" end end)
-CmdInput.FocusLost:Connect(function(enterPressed) if enterPressed and CmdInput.Text ~= "" then executeCommand(CmdInput.Text); CmdInput.Text = "" end end)
+local function OpenPanel()
+	PillBtn.Visible = false; CG.Visible = true
+	CG.GroupTransparency = 1; PanelScale.Scale = 0.92
+	tween(CG, T_FAST, {GroupTransparency = 0})
+	tween(PanelScale, T_SPRING, {Scale = 1})
+end
 
--- Keybinds
-UserInputService.InputBegan:Connect(function(input, processed)
-	if processed then return end
-	if input.KeyCode == Enum.KeyCode.RightShift then
-		local isVis = PanelFrame.Visible or PillBtn.Visible
-		if isVis then PanelFrame.Visible = false; PillBtn.Visible = false
-		else PillBtn.Visible = true; PillBtn.Position = pillPosition end
-	elseif input.KeyCode == Enum.KeyCode.F1 then executeCommand("/fly")
-	elseif input.KeyCode == Enum.KeyCode.F2 then executeCommand("/noclip")
-	elseif input.KeyCode == Enum.KeyCode.F3 then executeCommand("/esp")
-	elseif input.KeyCode == Enum.KeyCode.F4 then executeCommand("/fullbright")
+local function ClosePanel(minimize)
+	tween(CG, T_FAST, {GroupTransparency = 1})
+	tween(PanelScale, T_FAST, {Scale = 0.92})
+	task.delay(0.2, function() CG.Visible = false if minimize then PillBtn.Visible = true end end)
+end
+
+PillBtn.MouseButton1Click:Connect(OpenPanel)
+MinBtn.MouseButton1Click:Connect(function() ClosePanel(true) end)
+CloseBtn.MouseButton1Click:Connect(function() ClosePanel(false) Notify("ℹ Hidden", "Execute script again to open", "808098") end)
+
+UserInputService.InputBegan:Connect(function(i, p)
+	if p then return end
+	if i.KeyCode == Enum.KeyCode.RightShift then
+		if CG.Visible or PillBtn.Visible then CG.Visible = false PillBtn.Visible = false
+		else PillBtn.Visible = true end
 	end
 end)
 
--- [[ SECTION: MOBILE FLY D-PAD OVERLAY ]]
-if isMobile then
-	State.MobileFlyUI = create("ScreenGui", {Name = "DevFlyMobile", Enabled = false, Parent = UI_PARENT})
-	local mFlyFrame = create("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Parent = State.MobileFlyUI})
-	
-	local upBtn = create("TextButton", {Size = UDim2.new(0, 50, 0, 50), Position = UDim2.new(1, -70, 1, -140), BackgroundColor3 = COLORS.Bg, BackgroundTransparency = 0.5, Text = "▲", TextColor3 = COLORS.Text, TextSize = 20, Parent = mFlyFrame})
-	local dnBtn = create("TextButton", {Size = UDim2.new(0, 50, 0, 50), Position = UDim2.new(1, -70, 1, -70), BackgroundColor3 = COLORS.Bg, BackgroundTransparency = 0.5, Text = "▼", TextColor3 = COLORS.Text, TextSize = 20, Parent = mFlyFrame})
-	local exitBtn = create("TextButton", {Size = UDim2.new(0, 80, 0, 30), Position = UDim2.new(0.5, -40, 0, 20), BackgroundColor3 = COLORS.Bg, BackgroundTransparency = 0.2, Text = "✕ Land", TextColor3 = COLORS.Text, Font = Enum.Font.Gotham, TextSize = 12, Parent = mFlyFrame})
-	addCorner(25, upBtn); addCorner(25, dnBtn); addCorner(8, exitBtn)
-	
-	upBtn.InputBegan:Connect(function() State.FlyUp = true end)
-	upBtn.InputEnded:Connect(function() State.FlyUp = false end)
-	dnBtn.InputBegan:Connect(function() State.FlyDown = true end)
-	dnBtn.InputEnded:Connect(function() State.FlyDown = false end)
-	exitBtn.MouseButton1Click:Connect(function() executeCommand("/fly off") end)
-end
-
--- Initialize
-Notify("Devansh Admin Panel Loaded", "⚙")
-if not isMobile then Notify("Press Right Shift to toggle", "⌨️") end
-
+Notify("✔ Success", "Devansh Admin v8.1 loaded", "50FF96")
